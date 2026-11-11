@@ -25,21 +25,38 @@ st.set_page_config(page_title=APP_NAME, page_icon="💬", layout="centered")
 st.markdown(
     """
     <style>
-    .stApp { background-color: #F3FAF6; }
+    :root { color-scheme: light; }
+    .stApp, [data-testid="stAppViewContainer"], [data-testid="stBottom"] > div {
+        background-color: #F3FAF6 !important;
+    }
+    [data-testid="stHeader"] { background: transparent !important; }
+    .stApp, .stApp p, .stApp li, .stApp span, .stApp label, .stApp h1, .stApp h2,
+    .stApp h3, .stApp div[data-testid="stMarkdownContainer"] { color: #1B1B1B; }
+    [data-testid="stSidebar"] { background-color: #E3F4EA !important; }
+    [data-testid="stChatMessage"] {
+        background-color: #FFFFFF !important; border: 1px solid #CFE8DA;
+        border-radius: 12px; color: #1B1B1B;
+    }
+    [data-testid="stAlert"] { background-color: #E3F4EA !important; border-radius: 12px; }
+    [data-testid="stAlert"] * { color: #0B3D2E !important; }
+    [data-testid="stChatInput"], [data-testid="stChatInput"] > div {
+        background-color: #FFFFFF !important; border-radius: 12px;
+    }
+    [data-testid="stChatInput"] textarea { color: #1B1B1B !important; background: #FFFFFF !important; }
     .header {
         background: linear-gradient(135deg, #006A4E 0%, #0B8A63 100%);
-        color: white; padding: 18px 20px; border-radius: 14px;
+        padding: 18px 20px; border-radius: 14px;
         border-bottom: 5px solid #F42A41; margin-bottom: 18px;
     }
-    .header h1 { margin: 0; font-size: 1.6rem; color: white; }
+    .header h1, .header p, .header span { color: #FFFFFF !important; }
+    .header h1 { margin: 0; font-size: 1.6rem; }
     .header p { margin: 4px 0 0; opacity: .9; font-size: .95rem; }
     .dot { display:inline-block; width:12px; height:12px; border-radius:50%;
            background:#F42A41; margin-right:8px; }
-    [data-testid="stChatMessage"] { border-radius: 12px; }
     div.stButton > button {
-        background-color: #F42A41; color: white; border: none; border-radius: 8px;
+        background-color: #F42A41; color: #FFFFFF !important; border: none; border-radius: 8px;
     }
-    div.stButton > button:hover { background-color: #c91f33; color: white; }
+    div.stButton > button:hover { background-color: #c91f33; }
     </style>
     <div class="header">
         <h1><span class="dot"></span>Bangla Chat</h1>
@@ -129,8 +146,17 @@ def build_providers():
     return providers
 
 
+def clean_error(name, exc):
+    text = f"{type(exc)._name_}: {exc}"
+    for k in (GEMINI_KEY, GROQ_KEY, OPENROUTER_KEY):
+        if k:
+            text = text.replace(k, "*")
+    return f"{name} → {text[:300]}"
+
+
 def generate_reply(history, placeholder):
-    """Try each provider in order. Returns (reply_text, provider_name or None)."""
+    """Try each provider in order. Returns (reply_text, provider_name, errors)."""
+    errors = []
     for name, fn in build_providers():
         reply = ""
         try:
@@ -139,13 +165,14 @@ def generate_reply(history, placeholder):
                 placeholder.markdown(reply + "▌")
             if reply.strip():
                 placeholder.markdown(reply)
-                return reply, name
-        except Exception:
+                return reply, name, errors
+            errors.append(f"{name} → খালি উত্তর এসেছে")
+        except Exception as exc:
             if reply.strip():  # partial answer already shown; keep it
                 placeholder.markdown(reply)
-                return reply, name
-            continue  # nothing received, try the next provider
-    return None, None
+                return reply, name, errors
+            errors.append(clean_error(name, exc))
+    return None, None, errors
 
 
 # ---------- Chat history ----------
@@ -177,10 +204,13 @@ if prompt:
 
     with st.chat_message("assistant"):
         placeholder = st.empty()
-        reply, used = generate_reply(history, placeholder)
+        reply, used, errors = generate_reply(history, placeholder)
         if reply is None:
             reply = "দুঃখিত, এখন উত্তর দেওয়া যাচ্ছে না। একটু পরে আবার চেষ্টা করুন।"
             placeholder.markdown(reply)
+            with st.expander("🔧 সমস্যার বিস্তারিত (Error details)"):
+                for e in errors:
+                    st.code(e, language=None)
             st.session_state.messages.pop()  # drop unanswered question so history stays valid
         else:
             st.session_state.messages.append({"role": "assistant", "content": reply})
